@@ -1,0 +1,679 @@
+-- ╔══════════════════════════════════════════════════╗
+-- ║   SEMYON HUB v9.0 | BLOXSTRIKE                   ║
+-- ║   Aimbot на T (игроки+боты) • ESP • Sticky Lock  ║
+-- ╚══════════════════════════════════════════════════╝
+
+local Players          = game:GetService("Players")
+local Workspace        = game:GetService("Workspace")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting         = game:GetService("Lighting")
+local VirtualUser      = game:GetService("VirtualUser")
+local TeleportService  = game:GetService("TeleportService")
+
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do task.wait(0.1) LocalPlayer = Players.LocalPlayer end
+
+print("[SEMYON v9.0] загрузка... ЖМИ T ДЛЯ АИМБОТА")
+
+-- ════════ НАСТРОЙКИ ════════
+local S = {
+    Aimbot     = false,     -- T включает/выключает
+    Snap       = 1.0,       -- 1.0 = мгновенный захват (прицел НЕ уходит в бок)
+    HitPart    = "Head",
+    FOVRadius  = 350,
+    ShowFOV    = true,
+    TargetNPCs = true,      -- целиться и в ботов
+    StickyLock = true,      -- держит одну цель — прицел не дёргается по всем
+
+    EspGlow    = true,      -- свечение игроков и ботов
+    EspBoxes   = true,
+
+    Speed   = 16,
+    Fly     = false,
+    FlySpeed= 80,
+    Noclip  = false,
+    InfJump = false,
+
+    Fullbright = false,
+    AntiAFK    = false,
+}
+
+local function rgb(r,g,b) return Color3.fromRGB(r,g,b) end
+local C = {
+    BG=rgb(15,17,20), PANEL=rgb(24,27,32), PANEL2=rgb(20,23,27),
+    BORDER=rgb(50,55,63), ACC=rgb(34,197,94),
+    WH=rgb(240,242,245), GR=rgb(140,146,155), DARK=rgb(12,14,17),
+}
+
+-- ════════ GUI ════════
+local parent
+for _, fn in ipairs({
+    function() if gethui then return gethui() end end,
+    function() return game:GetService("CoreGui") end,
+    function() return LocalPlayer:WaitForChild("PlayerGui", 5) end,
+}) do
+    local okp, t = pcall(fn)
+    if okp and t then parent = t break end
+end
+if not parent then parent = LocalPlayer:WaitForChild("PlayerGui") end
+for _, nm in ipairs({"SemyonHub","SemyonESP","SemyonFOV","_SemyonErr"}) do
+    local a = parent:FindFirstChild(nm)
+    if a then pcall(function() a:Destroy() end) end
+end
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "SemyonHub" Gui.ResetOnSpawn = false Gui.DisplayOrder = 999
+pcall(function() Gui.Parent = parent end)
+if not Gui.Parent then Gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local EG = Instance.new("ScreenGui")
+EG.Name = "SemyonESP" EG.ResetOnSpawn = false EG.DisplayOrder = 500 EG.IgnoreGuiInset = true
+EG.Parent = Gui.Parent
+
+local function nw(cl, pr, p) local o = Instance.new(cl) for k, v in pairs(pr) do o[k] = v end if p then o.Parent = p end return o end
+local function cn(o, r) return nw("UICorner", {CornerRadius = UDim.new(0, r or 8)}, o) end
+
+local W, H = 500, 300
+local Main = nw("Frame", {Size = UDim2.new(0, W, 0, H), Position = UDim2.new(0.5, -W/2, 0.5, -H/2),
+    BackgroundColor3 = C.BG, BorderSizePixel = 0, Active = true}, Gui)
+cn(Main, 12)
+nw("UIStroke", {Color = C.BORDER, Thickness = 1}, Main)
+
+local Top = nw("Frame", {Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = C.PANEL2, BorderSizePixel = 0, Active = true}, Main)
+cn(Top, 12)
+nw("TextLabel", {Size = UDim2.new(0, 110, 1, 0), Position = UDim2.new(0, 16, 0, 0),
+    BackgroundTransparency = 1, Text = "SEMYON", TextColor3 = C.ACC, TextSize = 18,
+    Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left}, Top)
+nw("TextLabel", {Size = UDim2.new(0, 60, 1, 0), Position = UDim2.new(0, 104, 0, 0),
+    BackgroundTransparency = 1, Text = "HUB", TextColor3 = C.WH, TextSize = 18,
+    Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left}, Top)
+
+local stAim = nw("TextLabel", {Size = UDim2.new(0, 80, 1, 0), Position = UDim2.new(1, -160, 0, 0),
+    BackgroundTransparency = 1, Text = "AIM: OFF", TextColor3 = C.GR, TextSize = 11,
+    Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Right}, Top)
+local stLock = nw("TextLabel", {Size = UDim2.new(0, 80, 1, 0), Position = UDim2.new(1, -75, 0, 0),
+    BackgroundTransparency = 1, Text = "LOCK: -", TextColor3 = C.GR, TextSize = 11,
+    Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Right}, Top)
+
+local X = nw("TextButton", {Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -36, 0.5, -14),
+    BackgroundColor3 = C.DARK, Text = "X", TextColor3 = C.GR, TextSize = 13,
+    Font = Enum.Font.GothamBold, AutoButtonColor = false}, Top)
+cn(X, 8)
+
+local drag, dragStart, startPos = false, nil, nil
+Top.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+        drag = true dragStart = i.Position startPos = Main.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+        local d = i.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then drag = false end
+end)
+
+-- вкладки
+local Sidebar = nw("Frame", {Size = UDim2.new(0, 120, 1, -44), Position = UDim2.new(0, 0, 0, 44), BackgroundTransparency = 1}, Main)
+local TabHolder = nw("Frame", {Size = UDim2.new(1, -12, 1, -12), Position = UDim2.new(0, 6, 0, 6), BackgroundTransparency = 1}, Sidebar)
+nw("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, TabHolder)
+local Content = nw("Frame", {Size = UDim2.new(1, -130, 1, -56), Position = UDim2.new(0, 124, 0, 50), BackgroundTransparency = 1}, Main)
+
+local pages, tabBtns = {}, {}
+local function tab(name)
+    local b = nw("TextButton", {Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = C.PANEL,
+        Text = "  " .. name, TextColor3 = C.GR, TextSize = 13,
+        Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false}, TabHolder)
+    cn(b, 8)
+    local p = nw("ScrollingFrame", {Size = UDim2.new(1, -4, 1, -4), Position = UDim2.new(0, 2, 0, 2),
+        BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+        ScrollBarImageColor3 = C.ACC, CanvasSize = UDim2.new(0,0,0,0), Visible = false, ClipsDescendants = true}, Content)
+    local l = nw("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, p)
+    l:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        p.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 12)
+    end)
+    b.MouseButton1Click:Connect(function()
+        for _, x in pairs(pages) do x.Visible = false end
+        for _, x in pairs(tabBtns) do x.BackgroundColor3 = C.PANEL x.TextColor3 = C.GR end
+        p.Visible = true b.BackgroundColor3 = C.ACC b.TextColor3 = rgb(10,22,14)
+    end)
+    pages[name] = p tabBtns[name] = b
+    return p
+end
+
+local function section(p, text, order)
+    nw("TextLabel", {Size = UDim2.new(1, -10, 0, 22), BackgroundTransparency = 1, Text = text,
+        TextColor3 = C.ACC, TextSize = 11, Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order}, p)
+end
+local function info(p, text, order)
+    local r = nw("Frame", {Size = UDim2.new(1, -10, 0, 38), BackgroundColor3 = C.PANEL, LayoutOrder = order}, p)
+    cn(r, 8)
+    nw("TextLabel", {Size = UDim2.new(1, -22, 1, 0), Position = UDim2.new(0, 11, 0, 0),
+        BackgroundTransparency = 1, Text = text, TextColor3 = C.GR, TextSize = 11,
+        Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true}, r)
+end
+local function toggle(p, text, order, def, cb)
+    local s = def or false
+    local r = nw("Frame", {Size = UDim2.new(1, -10, 0, 38), BackgroundColor3 = C.PANEL, LayoutOrder = order}, p)
+    cn(r, 8)
+    nw("TextLabel", {Size = UDim2.new(1, -80, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+        BackgroundTransparency = 1, Text = text, TextColor3 = C.WH, TextSize = 13,
+        Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left}, r)
+    local tr = nw("Frame", {Size = UDim2.new(0, 42, 0, 22), Position = UDim2.new(1, -54, 0.5, -11),
+        BackgroundColor3 = s and C.ACC or rgb(70,75,84)}, r)
+    cn(tr, 999)
+    local kn = nw("Frame", {Size = UDim2.new(0, 18, 0, 18),
+        Position = s and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9),
+        BackgroundColor3 = rgb(255,255,255)}, tr)
+    cn(kn, 999)
+    nw("TextButton", {Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Text = ""}, r).MouseButton1Click:Connect(function()
+        s = not s
+        tr.BackgroundColor3 = s and C.ACC or rgb(70,75,84)
+        kn.Position = s and UDim2.new(1,-20,0.5,-9) or UDim2.new(0,2,0.5,-9)
+        cb(s)
+    end)
+end
+local function slider(p, text, order, mn, mx, df, suffix, cb)
+    local r = nw("Frame", {Size = UDim2.new(1, -10, 0, 50), BackgroundColor3 = C.PANEL, LayoutOrder = order}, p)
+    cn(r, 8)
+    nw("TextLabel", {Size = UDim2.new(0, 200, 0, 20), Position = UDim2.new(0, 12, 0, 4),
+        BackgroundTransparency = 1, Text = text, TextColor3 = C.WH, TextSize = 12,
+        Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left}, r)
+    local lb = nw("TextLabel", {Size = UDim2.new(0, 110, 0, 20), Position = UDim2.new(1, -122, 0, 4),
+        BackgroundTransparency = 1, Text = tostring(df).." "..suffix, TextColor3 = C.ACC, TextSize = 12,
+        Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Right}, r)
+    local bar = nw("Frame", {Size = UDim2.new(1, -24, 0, 10), Position = UDim2.new(0, 12, 1, -18),
+        BackgroundColor3 = rgb(60,65,74)}, r)
+    cn(bar, 999)
+    local fill = nw("Frame", {Size = UDim2.new((df-mn)/(mx-mn), 0, 1, 0), BackgroundColor3 = C.ACC}, bar)
+    cn(fill, 999)
+    local dg2 = false
+    bar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dg2 = true end end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then dg2 = false end end)
+    UserInputService.InputChanged:Connect(function(i)
+        if dg2 and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local rel = math.clamp((i.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+            local v = math.floor(mn + (mx - mn) * rel + 0.5)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            lb.Text = tostring(v).." "..suffix
+            cb(v)
+        end
+    end)
+end
+
+-- ════════ ЦЕЛИ: ИГРОКИ + БОТЫ (события, без лагов) ════════
+local npcSet = {}
+local function tryAddNPC(m)
+    if not m or not m:IsA("Model") then return end
+    if npcSet[m] then return end
+    if Players:GetPlayerFromCharacter(m) then return end
+    local h = m:FindFirstChildOfClass("Humanoid")
+    if h then npcSet[m] = h end
+end
+
+for _, m in ipairs(Workspace:GetChildren()) do tryAddNPC(m) end
+workspace.DescendantAdded:Connect(function(d)
+    if d:IsA("Humanoid") and d.Parent then
+        local m = d.Parent
+        task.defer(function() pcall(function() tryAddNPC(m) end) end)
+    end
+end)
+
+local function getPart(m)
+    return m:FindFirstChild(S.HitPart) or m:FindFirstChild("Head") or m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+end
+
+local function alive(m, h)
+    return m.Parent and h and h.Health > 0
+end
+
+-- ════════ АИМБОТ: STICKY LOCK — прицел НЕ уходит в бок ════════
+-- Логика: как только цель захвачена — она ЗАКРЕПЛЯЕТСЯ, прицел
+-- держит именно её до смерти. Никаких прыжков между врагами.
+local lockedTarget = nil   -- {part=BasePart, model=Model, hum=Humanoid}
+
+local function acquireTarget()
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil end
+    local center = cam.ViewportSize / 2
+    local best, bd = nil, S.FOVRadius
+
+    -- игроки
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character.Parent then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if alive(plr.Character, hum) then
+                local part = getPart(plr.Character)
+                if part then
+                    local okp, pos = pcall(function() return cam:WorldToViewportPoint(part.Position) end)
+                    if okp and pos and pos.Z > 0 then
+                        local d = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if d < bd then bd, best = d, part end
+                    end
+                end
+            end
+        end
+    end
+
+    -- боты
+    if S.TargetNPCs then
+        for m, h in pairs(npcSet) do
+            if not m.Parent then
+                npcSet[m] = nil
+            elseif alive(m, h) then
+                local part = getPart(m)
+                if part then
+                    local okp, pos = pcall(function() return cam:WorldToViewportPoint(part.Position) end)
+                    if okp and pos and pos.Z > 0 then
+                        local d = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if d < bd then bd, best = d, part end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function targetValid(t)
+    if not t or not t.part or not t.part.Parent then return false end
+    local hum = t.model and t.model:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    local cam = Workspace.CurrentCamera
+    if not cam then return false end
+    local okp, pos = pcall(function() return cam:WorldToViewportPoint(t.part.Position) end)
+    if not (okp and pos and pos.Z > 0) then return false end
+    -- если цель сильно ушла от центра (больше 2x FOV) — отпускаем
+    local center = cam.ViewportSize / 2
+    local d = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+    return d < S.FOVRadius * 2.5
+end
+
+local frame = 0
+RunService.RenderStepped:Connect(function()
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    frame = frame + 1
+
+    -- АИМБОТ
+    if S.Aimbot then
+        -- липкий лок
+        if S.StickyLock and lockedTarget and targetValid(lockedTarget) then
+            -- держим текущую
+        else
+            local part = acquireTarget()
+            if part then
+                local model = part:FindFirstAncestorOfClass("Model")
+                lockedTarget = {part = part, model = model, hum = model and model:FindFirstChildOfClass("Humanoid")}
+            else
+                lockedTarget = nil
+            end
+        end
+
+        if lockedTarget and lockedTarget.part then
+            -- МГНОВЕННЫЙ захват: камера жёстко смотрит в голову —
+            -- прицел не плывёт и не уходит в бок
+            if S.Snap >= 0.95 then
+                cam.CFrame = CFrame.new(cam.CFrame.Position, lockedTarget.part.Position)
+            else
+                cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position, lockedTarget.part.Position), S.Snap)
+            end
+        end
+    else
+        lockedTarget = nil
+    end
+
+    -- FOV круг
+    if frame % 6 == 0 and fovC then
+        fovC.Position = cam.ViewportSize / 2
+        fovC.Radius = S.FOVRadius
+        fovC.Visible = S.ShowFOV and S.Aimbot
+    end
+
+    -- боксы ESP
+    if frame % 3 ~= 0 then return end
+    local camPos = cam.CFrame.Position
+    local espShown = 0
+
+    -- игроки
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        local d = getD(plr)
+        local ch = plr.Character
+        local drawn = false
+        if ch and ch.Parent and S.EspBoxes then
+            local hum = ch:FindFirstChildOfClass("Humanoid")
+            local hrp = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("UpperTorso")
+            if hum and hum.Health > 0 and hrp then
+                local dist = (hrp.Position - camPos).Magnitude
+                local okR, rp = pcall(function() return cam:WorldToViewportPoint(hrp.Position) end)
+                if okR and rp and rp.Z > 0 then
+                    local head = ch:FindFirstChild("Head")
+                    local topOk, top = pcall(function() return cam:WorldToViewportPoint((head or hrp).Position + Vector3.new(0, 0.9, 0)) end)
+                    local botOk, bot = pcall(function() return cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.1, 0)) end)
+                    if topOk and botOk then
+                        local h = math.abs(bot.Y - top.Y)
+                        if h > 4 then
+                            local w = math.max(h * 0.55, 10)
+                            local x = rp.X - w/2
+                            local y = math.min(top.Y, bot.Y)
+                            local col = rgb(255,60,60)
+                            drawn = true espShown = espShown + 1
+                            if d.box then d.box.Size = Vector2.new(w,h) d.box.Position = Vector2.new(x,y) d.box.Color = col d.box.Visible = true end
+                            if d.boxO then d.boxO.Size = Vector2.new(w,h) d.boxO.Position = Vector2.new(x,y) d.boxO.Visible = true end
+                            if d.nm then d.nm.Text = plr.Name d.nm.Position = Vector2.new(rp.X, y-18) d.nm.Color = col d.nm.Visible = true end
+                            if d.dist then d.dist.Text = math.floor(dist+0.5).."m" d.dist.Position = Vector2.new(rp.X, y+h+4) d.dist.Visible = true end
+                            if d.hp and d.hpO then
+                                local fr = math.clamp(hum.Health/math.max(hum.MaxHealth,1),0,1)
+                                d.hpO.Size = Vector2.new(5,h+2) d.hpO.Position = Vector2.new(x-9,y-1) d.hpO.Visible = true
+                                d.hp.Size = Vector2.new(3,h*fr) d.hp.Position = Vector2.new(x-8,y+h*(1-fr)) d.hp.Color = hpCol(fr) d.hp.Visible = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if not drawn then hideD(d) end
+    end
+
+    -- боты
+    for m, h in pairs(npcSet) do
+        if not m.Parent then
+            npcSet[m] = nil
+            local d = espDraw["npc_"..m:GetDebugId()]
+            if d then hideD(d) end
+        else
+            local key = "npc_"..tostring(m)
+            local d = getD(key)
+            local drawn = false
+            if S.EspBoxes and alive(m, h) then
+                local part = getPart(m)
+                if part then
+                    local dist = (part.Position - camPos).Magnitude
+                    local okR, rp = pcall(function() return cam:WorldToViewportPoint(part.Position) end)
+                    if okR and rp and rp.Z > 0 then
+                        local okT, top = pcall(function() return cam:WorldToViewportPoint(part.Position + Vector3.new(0, 2.2, 0)) end)
+                        local okB, bot = pcall(function() return cam:WorldToViewportPoint(part.Position - Vector3.new(0, 3.1, 0)) end)
+                        if okT and okB then
+                            local bh = math.abs(bot.Y - top.Y)
+                            if bh > 4 then
+                                local w = math.max(bh * 0.55, 10)
+                                local x = rp.X - w/2
+                                local y = math.min(top.Y, bot.Y)
+                                local col = rgb(255,150,40) -- боты оранжевые
+                                drawn = true espShown = espShown + 1
+                                if d.box then d.box.Size = Vector2.new(w,bh) d.box.Position = Vector2.new(x,y) d.box.Color = col d.box.Visible = true end
+                                if d.boxO then d.boxO.Size = Vector2.new(w,bh) d.boxO.Position = Vector2.new(x,y) d.boxO.Visible = true end
+                                if d.nm then d.nm.Text = "[BOT] "..m.Name d.nm.Position = Vector2.new(rp.X, y-18) d.nm.Color = col d.nm.Visible = true end
+                                if d.dist then d.dist.Text = math.floor(dist+0.5).."m" d.dist.Position = Vector2.new(rp.X, y+bh+4) d.dist.Visible = true end
+                                if d.hp and d.hpO then
+                                    local fr = math.clamp(h.Health/math.max(h.MaxHealth,1),0,1)
+                                    d.hpO.Size = Vector2.new(5,bh+2) d.hpO.Position = Vector2.new(x-9,y-1) d.hpO.Visible = true
+                                    d.hp.Size = Vector2.new(3,bh*fr) d.hp.Position = Vector2.new(x-8,y+bh*(1-fr)) d.hp.Color = hpCol(fr) d.hp.Visible = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            if not drawn then hideD(d) end
+        end
+    end
+
+    if frame % 30 == 0 then
+        stEsp.Text = "ESP:" .. espShown
+        stEsp.TextColor3 = espShown > 0 and C.ACC or C.GR
+    end
+end)
+
+-- ════════ ESP: СВЕЧЕНИЕ (игроки + боты) ════════
+local HLNAME = "_SemyonGlow"
+
+local function updateGlow(m, isNPC, plrName)
+    if not m or not m.Parent then return end
+    local old = m:FindFirstChild(HLNAME)
+    local hum = m:FindFirstChildOfClass("Humanoid")
+    if not S.EspGlow or not hum or hum.Health <= 0 then
+        if old then old:Destroy() end
+        return
+    end
+    local col = isNPC and rgb(255,150,40) or rgb(255,50,50)
+    if old then old.FillColor = col old.OutlineColor = col return end
+    local hl = Instance.new("Highlight")
+    hl.Name = HLNAME
+    hl.FillColor = col hl.OutlineColor = col
+    hl.FillTransparency = 0.55 hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = m
+end
+
+local function hookPlr(plr)
+    if plr == LocalPlayer then return end
+    if plr.Character then task.spawn(updateGlow, plr.Character, false) end
+    plr.CharacterAdded:Connect(function()
+        task.wait(0.6)
+        task.spawn(updateGlow, plr.Character, false)
+    end)
+end
+for _, p in ipairs(Players:GetPlayers()) do hookPlr(p) end
+Players.PlayerAdded:Connect(hookPlr)
+
+task.spawn(function()
+    while Gui.Parent do
+        task.wait(1.5)
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then task.spawn(updateGlow, plr.Character, false) end
+        end
+        if S.EspGlow then
+            for m, _ in pairs(npcSet) do
+                task.spawn(updateGlow, m, true)
+            end
+        end
+    end
+end)
+
+-- ════════ ДВИЖЕНИЕ ════════
+local function applyStats()
+    local ch = LocalPlayer.Character
+    if not ch then return end
+    local hum = ch:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = S.Speed
+        hum.UseJumpPower = true
+        hum.JumpPower = 50
+    end
+end
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.8) applyStats()
+end)
+task.spawn(function()
+    while Gui.Parent do task.wait(1) applyStats() end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if S.InfJump then
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if S.Noclip then
+        local ch = LocalPlayer.Character
+        if ch then
+            for _, p in ipairs(ch:GetChildren()) do
+                if p:IsA("BasePart") and p.CanCollide then p.CanCollide = false end
+            end
+        end
+    end
+end)
+
+local flyConn, flyGyro, flyVel
+local function stopFly()
+    if flyConn then flyConn:Disconnect() flyConn = nil end
+    if flyGyro then flyGyro:Destroy() flyGyro = nil end
+    if flyVel then flyVel:Destroy() flyVel = nil end
+    local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+end
+local function startFly()
+    local ch = LocalPlayer.Character
+    local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+    hum.PlatformStand = true
+    flyGyro = Instance.new("BodyGyro") flyGyro.P = 9e4
+    flyGyro.MaxTorque = Vector3.new(9e9,9e9,9e9) flyGyro.CFrame = hrp.CFrame flyGyro.Parent = hrp
+    flyVel = Instance.new("BodyVelocity") flyVel.MaxForce = Vector3.new(9e9,9e9,9e9)
+    flyVel.Velocity = Vector3.zero flyVel.Parent = hrp
+    flyConn = RunService.RenderStepped:Connect(function()
+        local cam = Workspace.CurrentCamera
+        local move = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move += cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move -= cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move -= cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move += cam.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0,1,0) end
+        if flyVel then flyVel.Velocity = (move.Magnitude > 0) and (move.Unit * S.FlySpeed) or Vector3.zero end
+        if flyGyro and hrp.Parent then flyGyro.CFrame = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector) end
+    end)
+end
+
+local function applyFB()
+    if S.Fullbright then
+        Lighting.Brightness = 2 Lighting.ClockTime = 14
+        Lighting.FogEnd = 1e6 Lighting.GlobalShadows = false
+        Lighting.Ambient = rgb(140,140,140)
+    else
+        Lighting.Brightness = 1 Lighting.ClockTime = 0
+        Lighting.FogEnd = 1000 Lighting.GlobalShadows = true
+        Lighting.Ambient = rgb(70,70,70)
+    end
+end
+
+LocalPlayer.Idled:Connect(function()
+    if S.AntiAFK then VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.new()) end
+end)
+
+-- ════════ ВКЛАДКИ ════════
+local tAim  = tab("Аимбот")
+local tEsp  = tab("ESP")
+local tMove = tab("Движение")
+local tMisc = tab("Разное")
+
+section(tAim, "Аимбот  [T — вкл/выкл]", 0)
+toggle(tAim, "Аимбот (игроки + боты)", 1, false, function(v) S.Aimbot = v end)
+toggle(tAim, "Липкий лок (прицел не дёргается)", 2, true, function(v)
+    S.StickyLock = v
+    if not v then lockedTarget = nil end
+end)
+toggle(tAim, "Целиться в ботов тоже", 3, true, function(v) S.TargetNPCs = v end)
+
+section(tAim, "Настройки", 4)
+toggle(tAim, "FOV круг", 5, true, function(v) S.ShowFOV = v end)
+slider(tAim, "Радиус захвата", 6, 50, 800, 350, "px", function(v) S.FOVRadius = v end)
+slider(tAim, "Резкость (100 = мгновенный)", 7, 20, 100, 100, "%", function(v) S.Snap = v / 100 end)
+
+section(tAim, "Управление", 8)
+info(tAim, "T — аимбот | RightControl — меню | Прицел мгновенно в голову и держит цель", 9)
+
+section(tEsp, "ESP — игроки и боты", 0)
+toggle(tEsp, "Glow свечение сквозь стены", 1, true, function(v) S.EspGlow = v end)
+toggle(tEsp, "Боксы: рамка + ник + ХП + метры", 2, true, function(v)
+    S.EspBoxes = v
+    for _, d in pairs(espDraw) do hideD(d) end
+end)
+info(tEsp, "Игроки: КРАСНЫЙ | Боты: ОРАНЖЕВЫЙ | [BOT] в нике", 3)
+
+section(tMove, "Скорость", 0)
+slider(tMove, "Скорость бега", 1, 16, 300, 16, "", function(v)
+    S.Speed = v applyStats()
+end)
+
+section(tMove, "Полёт", 2)
+toggle(tMove, "Fly — WASD + Space/Ctrl", 3, false, function(v)
+    S.Fly = v
+    if v then startFly() else stopFly() end
+end)
+slider(tMove, "Скорость полёта", 4, 20, 300, 80, "", function(v) S.FlySpeed = v end)
+
+section(tMove, "Прочее", 5)
+toggle(tMove, "Noclip", 6, false, function(v) S.Noclip = v end)
+toggle(tMove, "Infinite Jump", 7, false, function(v) S.InfJump = v end)
+
+section(tMisc, "Мир", 0)
+toggle(tMisc, "Fullbright", 1, false, function(v)
+    S.Fullbright = v applyFB()
+end)
+
+section(tMisc, "Сессия", 2)
+toggle(tMisc, "Anti-AFK", 3, false, function(v) S.AntiAFK = v end)
+button(tMisc, "Rejoin", 4, function()
+    TeleportService:Teleport(game.PlaceId, LocalPlayer)
+end)
+button(tMisc, "Выгрузить", 5, function()
+    S.Aimbot = false S.Noclip = false S.InfJump = false
+    S.EspGlow = false S.EspBoxes = false S.Speed = 16
+    applyStats()
+    if S.Fly then S.Fly = false stopFly() end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character then
+            local old = plr.Character:FindFirstChild(HLNAME)
+            if old then old:Destroy() end
+        end
+        removeD(plr)
+    end
+    for m, _ in pairs(npcSet) do
+        if m then
+            local old = m:FindFirstChild(HLNAME)
+            if old then old:Destroy() end
+        end
+    end
+    if fovC then pcall(function() fovC:Remove() end) end
+    EG:Destroy() Gui:Destroy()
+end)
+
+-- ════════ ХОТКЕИ ════════
+UserInputService.InputBegan:Connect(function(i, proc)
+    if proc then return end
+    if i.KeyCode == Enum.KeyCode.T then
+        S.Aimbot = not S.Aimbot
+        print("[SEMYON] АИМБОТ: " .. (S.Aimbot and "ВКЛ — прицел сам в голову!" or "ВЫКЛ"))
+    elseif i.KeyCode == Enum.KeyCode.RightControl then
+        Gui.Enabled = not Gui.Enabled
+    end
+end)
+
+X.MouseButton1Click:Connect(function()
+    Gui.Enabled = not Gui.Enabled
+end)
+
+task.spawn(function()
+    while Gui.Parent do
+        stAim.Text = S.Aimbot and "AIM: ON" or "AIM: OFF"
+        stAim.TextColor3 = S.Aimbot and C.ACC or C.GR
+        if S.Aimbot and lockedTarget and lockedTarget.part then
+            stLock.Text = "LOCK: OK"
+            stLock.TextColor3 = C.ACC
+        elseif S.Aimbot then
+            stLock.Text = "LOCK: ищу"
+            stLock.TextColor3 = C.GR
+        else
+            stLock.Text = "LOCK: -"
+            stLock.TextColor3 = C.GR
+        end
+        task.wait(0.2)
+    end
+end)
+
+pages["Аимбот"].Visible = true
+tabBtns["Аимбот"].BackgroundColor3 = C.ACC
+tabBtns["Аимбот"].TextColor3 = rgb(10,22,14)
+
+print("[SEMYON HUB v9.0] Загружен! ЖМИ T — аимбот на игроков И ботов. ESP уже работает.")
